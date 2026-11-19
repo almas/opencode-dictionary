@@ -1,0 +1,46 @@
+{
+  "name": "opencode-dictionary",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "JMdict/KANIDIC ベースの日本語辞書引き（释义・読み・筆順）を OpenCode Desktop に追加するオフラインプラグイン",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/almas/opencode-dictionary.git"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "dictionary",
+    "japanese",
+    "jmdict",
+    "kanjivg",
+    "offline"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./rpc": "./src/rpc.ts",
+    "./gui-experimental": "./dist/gui-experimental.cjs"
+  },
+  "files": [
+    "src",
+    "dist",
+    "data"
+  ],
+  "dependencies": {
+    "@opencode/plugin": "2.3.0"
+  },
+  "devDependencies": {
+    "jsdom": "^31.0.1",
+    "solid-js": "^1.9.0",
+    "typescript": "^5.6.0",
+    "vite": "^7.0.0",
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^3.2.7"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "build": "vite build",
+    "fetch-data": "node scripts/fetch-data.mjs"
+  }
+}
