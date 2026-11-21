@@ -96,7 +96,9 @@ export default Plugin.define({
       "dictionary.dialog.title": "Japanese dictionary",
       "dictionary.dialog.placeholder": "Search a word, kana or kanji…",
       "dictionary.dialog.loading": "Searching…",
-      "dictionary.dialog.hint": "Offline JMdict (common words) + KANIDIC + KanjiVG stroke order.",
+      "dictionary.dialog.hint": "Offline JMdict (common words) + kokugo (Japanese-Japanese) + KANIDIC + KanjiVG stroke order.",
+      "dictionary.section.jmdict": "JMdict (Japanese ↔ English)",
+      "dictionary.section.kokugo": "Kokugo (Japanese-Japanese)",
       "dictionary.context.lookup": "Look up in dictionary",
       "dictionary.action.read": "Read aloud",
       "dictionary.action.replay": "Replay stroke order",
@@ -112,7 +114,9 @@ export default Plugin.define({
       "dictionary.dialog.title": "日本語辞書",
       "dictionary.dialog.placeholder": "単語・かな・漢字を検索…",
       "dictionary.dialog.loading": "検索中…",
-      "dictionary.dialog.hint": "内蔵の JMdict（共通語彙）・KANIDIC・KanjiVG 筆順（すべてオフライン）。",
+      "dictionary.dialog.hint": "内蔵の JMdict（共通語彙）・国語辞典・KANIDIC・KanjiVG 筆順（すべてオフライン）。",
+      "dictionary.section.jmdict": "JMdict（日英対訳）",
+      "dictionary.section.kokugo": "国語辞典（日本語で説明）",
       "dictionary.context.lookup": "辞書で引く",
       "dictionary.action.read": "読み上げ",
       "dictionary.action.replay": "筆順を再生",
@@ -154,7 +158,7 @@ export default Plugin.define({
         const found = (await rpc.lookup({ query: value })) as LookupResult
         if (query() === value) setResult(found)
       } catch {
-        if (query() === value) setResult({ words: [], kanji: [], note: "dictionary RPC unavailable" })
+        if (query() === value) setResult({ words: [], kokugo: [], kanji: [], note: "dictionary RPC unavailable" })
       } finally {
         setBusy(false)
       }
@@ -421,7 +425,29 @@ export default Plugin.define({
               </Show>
               <div style={{ display: "flex", "flex-direction": "column", gap: "8px", padding: "0 14px 14px" }}>
                 <For each={props.result?.kanji ?? []}>{(entry) => <KanjiCard entry={entry} />}</For>
-                <For each={props.result?.words ?? []}>{(entry) => <WordCard entry={entry} />}</For>
+                {(() => {
+                  const words = () => props.result?.words ?? []
+                  const kokugo = () => props.result?.kokugo ?? []
+                  // when both dictionaries matched, cap each section so the dialog stays scannable
+                  const split = () => words().length > 0 && kokugo().length > 0
+                  const sectionLabel = (text: string) => (
+                    <div style={{ "padding-top": "4px", "font-size": "11px", "font-weight": "600", opacity: "0.55" }}>
+                      {text}
+                    </div>
+                  )
+                  return (
+                    <>
+                      <Show when={words().length > 0}>{sectionLabel(ctx.t("dictionary.section.jmdict"))}</Show>
+                      <For each={split() ? words().slice(0, 6) : words()}>
+                        {(entry) => <WordCard entry={entry} />}
+                      </For>
+                      <Show when={kokugo().length > 0}>{sectionLabel(ctx.t("dictionary.section.kokugo"))}</Show>
+                      <For each={split() ? kokugo().slice(0, 8) : kokugo()}>
+                        {(entry) => <WordCard entry={entry} />}
+                      </For>
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </div>

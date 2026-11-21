@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { defaultDataDir, loadDict, lookupKanji, lookupWords, strokeSvg } from "../src/dict"
+import { defaultDataDir, loadDict, lookupKanji, lookupKokugo, lookupWords, strokeSvg } from "../src/dict"
 
 const dir = defaultDataDir()
 
@@ -28,6 +28,29 @@ describe("lookupWords", () => {
   it("returns nothing for a nonsense query", () => {
     const data = loadDict(dir)
     expect(lookupWords(data, "zzqqxx", 5)).toEqual([])
+  })
+})
+
+describe("lookupKokugo", () => {
+  it("finds Japanese-Japanese definitions for a common noun", () => {
+    const data = loadDict(dir)
+    const hits = lookupKokugo(data, "猫", 8)
+    expect(hits.length).toBeGreaterThan(0)
+    expect(hits[0].surface).toBe("猫")
+    // the gloss itself is Japanese (kana present), i.e. not a JMdict translation
+    expect(hits[0].gloss).toMatch(/[ -ヿ]/)
+  })
+
+  it("finds kana verbs by their kanji form", () => {
+    const data = loadDict(dir)
+    const hits = lookupKokugo(data, "走る", 8)
+    expect(hits.length).toBeGreaterThan(0)
+    expect(hits.some((entry) => entry.pos === "動詞")).toBe(true)
+  })
+
+  it("returns nothing for a nonsense query", () => {
+    const data = loadDict(dir)
+    expect(lookupKokugo(data, "zzqqxx", 5)).toEqual([])
   })
 })
 

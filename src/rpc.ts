@@ -6,10 +6,23 @@
  */
 import type { Rpc } from "@opencode/schema/rpc"
 
+const WORD_ITEMS = {
+  type: "object",
+  properties: {
+    surface: { type: "string" },
+    reading: { type: "string" },
+    pos: { type: "string" },
+    gloss: { type: "string" },
+  },
+  required: ["surface", "reading", "gloss"],
+}
+
 export const DictionaryRpc = {
   id: "dictionary",
   methods: {
-    // Look a word or kanji up in the bundled JMdict / KANIDIC data.
+    // Look a word or kanji up in the bundled dictionaries:
+    // `words` = JMdict (Japanese↔English), `kokugo` = Japanese-Japanese
+    // definitions from the 日本語ウィクショナリー extraction (see DATA.md).
     lookup: {
       input: {
         type: "object",
@@ -24,16 +37,12 @@ export const DictionaryRpc = {
         properties: {
           words: {
             type: "array",
-            items: {
-              type: "object",
-              properties: {
-                surface: { type: "string" },
-                reading: { type: "string" },
-                pos: { type: "string" },
-                gloss: { type: "string" },
-              },
-              required: ["surface", "reading", "gloss"],
-            },
+            items: WORD_ITEMS,
+          },
+          kokugo: {
+            type: "array",
+            description: "Japanese-Japanese dictionary senses for the same query",
+            items: WORD_ITEMS,
           },
           kanji: {
             type: "array",
@@ -52,7 +61,7 @@ export const DictionaryRpc = {
           },
           note: { type: "string", description: "user-facing hint (Japanese) when nothing matched" },
         },
-        required: ["words", "kanji"],
+        required: ["words", "kokugo", "kanji"],
       },
     },
     // Stroke-order SVG for one kanji (KanjiVG), stripped to drawable paths.
@@ -78,6 +87,6 @@ export const DictionaryRpc = {
 export type LookupInput = { query: string; limit?: number }
 export type WordEntry = { surface: string; reading: string; pos?: string; gloss: string }
 export type KanjiEntry = { char: string; on?: string[]; kun?: string[]; meanings?: string[]; grade?: number; strokes?: number }
-export type LookupResult = { words: WordEntry[]; kanji: KanjiEntry[]; note?: string }
+export type LookupResult = { words: WordEntry[]; kokugo: WordEntry[]; kanji: KanjiEntry[]; note?: string }
 export type StrokeInput = { char: string }
 export type StrokeResult = { svg?: string; char: string }

@@ -3,8 +3,9 @@
  *
  * Reads the compact, gzipped tables built by scripts/fetch-data.mjs (see
  * DATA.md for sources and licenses) and answers lookups entirely from memory:
- * no network at runtime. The word table is kept sorted so prefix queries can
- * binary-search instead of scanning.
+ * no network at runtime. Two word tables are loaded — JMdict (Japanese↔
+ * English) and the kokugo table (Japanese-Japanese definitions) — each kept
+ * sorted so prefix queries can binary-search instead of scanning.
  */
 import { gunzipSync } from "node:zlib"
 import { readFileSync } from "node:fs"
@@ -17,6 +18,9 @@ export interface DictData {
   wordsBySurface: Map<string, WordEntry[]>
   /** all entries sorted by surface, for prefix search */
   sortedWords: WordEntry[]
+  /** same shape, loaded from the kokugo (Japanese-Japanese) table if present */
+  kokugoBySurface: Map<string, WordEntry[]>
+  sortedKokugo: WordEntry[]
   /** single kanji -> entry */
   kanji: Map<string, KanjiEntry>
 }
@@ -38,21 +42,33 @@ function readTsv(file: string): string[][] {
 
 let cache: { dir: string; data: DictData } | undefined
 
-/** Load (once, cached) the bundled dictionaries from `dir`. */
-export function loadDict(dataDir = defaultDataDir()): DictData {
-  if (cache && cache.dir === dataDir) return cache.data
-  const wordsBySurface = new Map<string, WordEntry[]>()
-  const sortedWords: WordEntry[] = []
-  for (const row of readTsv(join(dataDir, "jmdict-compact.tsv.gz"))) {
+function loadWords(file: string): { bySurface: Map<string, WordEntry[]>; sorted: WordEntry[] } {
+  const bySurface = new Map<string, WordEntry[]>()
+  const sorted: WordEntry[] = []
+  for (const row of readTsv(file)) {
     const [surface, reading, pos, gloss] = row
     if (!surface || reading === undefined || gloss === undefined) continue
     const entry: WordEntry = { surface, reading, ...(pos ? { pos } : {}), gloss }
-    sortedWords.push(entry)
-    const bucket = wordsBySurface.get(surface)
+    sorted.push(entry)
+    const bucket = bySurface.get(surface)
     if (bucket) bucket.push(entry)
-    else wordsBySurface.set(surface, [entry])
+    else bySurface.set(surface, [entry])
   }
-  sortedWords.sort((a, b) => (a.surface < b.surface ? -1 : a.surface > b.surface ? 1 : 0))
+  sorted.sort((a, b) => (a.surface < b.surface ? -1 : a.surface > b.surface ? 1 : 0))
+  return { bySurface, sorted }
+}
+
+/** Load (once, cached) the bundled dictionaries from `dir`. */
+export function loadDict(dataDir = defaultDataDir()): DictData {
+  if (cache && cache.dir === dataDir) return cache.data
+  const jmdict = loadWords(join(dataDir, "jmdict-compact.tsv.gz"))
+  // Optional: a data dir built before the kokugo table existed still works.
+  let kokugo = { bySurface: new Map<string, WordEntry[]>(), sorted: [] as WordEntry[] }
+  try {
+    kokugo = loadWords(join(dataDir, "kokugo-kaikki.tsv.gz"))
+  } catch {
+    // no kokugo table
+  }
 
   const kanji = new Map<string, KanjiEntry>()
   for (const row of readTsv(join(dataDir, "kanjidic-compact.tsv.gz"))) {
@@ -67,7 +83,16 @@ export function loadDict(dataDir = defaultDataDir()): DictData {
       strokes: strokes ? Number(strokes) : 0,
     })
   }
-  cache = { dir: dataDir, data: { wordsBySurface, sortedWords, kanji } }
+  cache = {
+    dir: dataDir,
+    data: {
+      wordsBySurface: jmdict.bySurface,
+      sortedWords: jmdict.sorted,
+      kokugoBySurface: kokugo.bySurface,
+      sortedKokugo: kokugo.sorted,
+      kanji,
+    },
+  }
   return cache.data
 }
 
@@ -84,11 +109,16 @@ function lowerBound(rows: WordEntry[], prefix: string): number {
 }
 
 /**
- * Word lookup: exact surface matches first, then prefix matches
+ * Word lookup in one table: exact surface matches first, then prefix matches
  * (so "書き" finds 書き物, 書き方 …). Readings are searched too, so
  * entering ひらがな finds the kanji surfaces.
  */
-export function lookupWords(data: DictData, query: string, limit = 12): WordEntry[] {
+function searchWords(
+  bySurface: Map<string, WordEntry[]>,
+  sorted: WordEntry[],
+  query: string,
+  limit: number,
+): WordEntry[] {
   const q = query.trim()
   if (!q) return []
   const out: WordEntry[] = []
@@ -102,25 +132,35 @@ export function lookupWords(data: DictData, query: string, limit = 12): WordEntr
       if (out.length >= limit) return
     }
   }
-  const exact = data.wordsBySurface.get(q)
+  const exact = bySurface.get(q)
   if (exact) push(exact)
   // exact reading hit ("読む" typed as a reading, or kana-only words)
   if (out.length < limit) {
-    const byReading = data.sortedWords.filter((e) => e.reading === q)
+    const byReading = sorted.filter((e) => e.reading === q)
     push(byReading.slice(0, limit - out.length))
   }
   // prefix over sorted surfaces
   if (out.length < limit) {
-    const start = lowerBound(data.sortedWords, q)
+    const start = lowerBound(sorted, q)
     const prefix: WordEntry[] = []
-    for (let i = start; i < data.sortedWords.length && prefix.length < limit - out.length; i++) {
-      const e = data.sortedWords[i]!
+    for (let i = start; i < sorted.length && prefix.length < limit - out.length; i++) {
+      const e = sorted[i]!
       if (!e.surface.startsWith(q)) break
       prefix.push(e)
     }
     push(prefix)
   }
   return out
+}
+
+/** JMdict (Japanese↔English) lookup. */
+export function lookupWords(data: DictData, query: string, limit = 12): WordEntry[] {
+  return searchWords(data.wordsBySurface, data.sortedWords, query, limit)
+}
+
+/** Kokugo (Japanese-Japanese, 日本語ウィクショナリー) lookup. */
+export function lookupKokugo(data: DictData, query: string, limit = 12): WordEntry[] {
+  return searchWords(data.kokugoBySurface, data.sortedKokugo, query, limit)
 }
 
 /** Kanji lookup when the query is a single kanji present in KANIDIC. */

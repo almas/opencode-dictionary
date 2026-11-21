@@ -1,20 +1,62 @@
-# Bundled data, sources and licenses
+# Data sources
 
-All dictionaries are bundled in `data/` and served entirely offline at runtime.
+All tables are built by `scripts/fetch-data.mjs` (run it once, network needed at
+*build* time only) and shipped inside the package. The plugin itself works fully
+offline: it reads gzipped TSV files from memory, and the only runtime network
+call is the optional `speechSynthesis` read-aloud, which the browser provides.
 
-| File | Source | License |
-| --- | --- | --- |
-| `data/jmdict-compact.tsv.gz` | [jmdict-simplified](https://github.com/scriptin/jmdict-simplified) (`jmdict-eng-common` release), derived from the JMdict dictionary by the Electronic Dictionary Research and Computing Group | CC BY-SA 4.0 (JMdict) |
-| `data/kanjidic-compact.tsv.gz` | [jmdict-simplified](https://github.com/scriptin/jmdict-simplified) (`kanjidic2-en` release), derived from KANIDIC by the Electronic Dictionary Research and Computing Group | CC BY-SA 4.0 (KANIDIC) |
-| `data/strokes/*.svg.gz` | [KanjiVG](https://kanjivg.tagaini.net) by Ulrich Apel | CC BY-SA 3.0 |
+| File                    | Source                                                  | License                       |
+| ----------------------- | ------------------------------------------------------- | ----------------------------- |
+| `words-jmdict.tsv.gz`   | JMdict-EDICT common vocabulary (`jmdict-eng-common`)     | CC BY-SA 4.0 (see below)      |
+| `kokugo-kaikki.tsv.gz`  | 日本語ウィクショナリー extraction by kaikki.org          | CC BY-SA 4.0 (see below)      |
+| `kanji-kanidic.tsv.gz`  | KANIDIC (`kanjidic2-en`)                                 | CC BY-SA 4.0 (see below)      |
+| `strokes/*.svg.gz`      | KanjiVG                                                  | CC BY-SA 3.0 (see below)      |
 
-Notes:
+## Attribution (required by CC BY-SA)
 
-- The jmdict tables are converted to a compact gzipped TSV (surface / reading /
-  part of speech / gloss, and character / on / kun / meanings / grade / stroke
-  count). Only the common-vocabulary subset ships to keep the bundle small.
-- KanjiVG stroke files are stripped to their ordered stroke paths for the
-  2,136 grade 1–8 kanji and gzipped per file.
-- To regenerate everything from the upstream releases run `node scripts/fetch-data.mjs`.
-- Full license texts: <https://creativecommons.org/licenses/by-sa/4.0/> and
-  <https://creativecommons.org/licenses/by-sa/3.0/>.
+- **JMdict** — Copyright Electronic Dictionary Research and Development Group
+  (Monash University IMADB), licensed under CC BY-SA 4.0.
+  Data: <https://www.edrdg.org/jmdict/edict_doc.html> —
+  converted with <https://github.com/jedirt/jmdict-simplified>.
+- **Japanese Wiktionary (kokugo table)** — definitions from the community-run
+  日本語ウィクショナリー (<https://ja.wiktionary.org>), extracted by
+  kaikki.org (<https://kaikki.org>). Text is licensed CC BY-SA 4.0; the
+  extraction is in the public domain (CC0). Because definitions are
+  user-contributed, glosses carry no editorial guarantee — treat them like any
+  wiki. Each gloss in the table cites its source template (e.g.
+  「デジタル大辞泉」の解説) so provenance stays visible.
+- **KANIDIC** — Jim Breen's WWWJDIC Dictionary Server Project (EDRDG),
+  CC BY-SA 4.0.
+- **KanjiVG** — Ulrich Apel, <https://kanjivg.tagaini.net>, CC BY-SA 3.0.
+
+Since derivatives of CC BY-SA data are shared under the same license, the data
+files in `data/` are distributed under CC BY-SA 4.0. The plugin source code
+itself is MIT (see LICENSE).
+
+## Kokugo table details
+
+`kokugo-kaikki.tsv.gz` holds Japanese-Japanese definitions: one row per
+surface × sense (columns: surface, reading, part of speech, definition),
+sorted by surface. Headword+POS combinations are capped at four senses to keep
+the dialog scannable. Readings prefer kun-yomi kana over on-yomi.
+`scripts/fetch-data.mjs` maps it from the kaikki.org JSONL
+(`parts of speech: 名詞/動詞/形容詞/副詞/記号/感動詞/…`). The upstream file
+rotates occasionally; if the URL 404s, point `OC_DICT_KOKUGO` (or the default
+cache path, see the script header) at a saved snapshot of the same JSONL.
+
+## Regenerating
+
+```sh
+npm run fetch-data   # downloads sources, rewrites data/ (needs network)
+```
+
+## Why JMdict + Wiktionary?
+
+JMdict covers everyday vocabulary with English glosses and is the same base
+many commercial learner's dictionaries use. It answers "what does this mean in
+English". The 日本語ウィクショナリー extraction covers roughly 124k headwords
+with Japanese-Japanese definitions — it answers "what does this mean", with
+native-style explanations, usage notes and cited sources, including terms JMdict
+does not carry. Kanji lookups use KANIDIC for meanings/readings/grades and
+KanjiVG for stroke-order animations. JAML and NAIST J dictionary are not
+redistributed here because their licenses restrict redistribution.
