@@ -80,22 +80,25 @@ console.log(`jmdict lines=${lines.size}`)
 // Japanese-Japanese definitions. One JSON line per word x part-of-speech; verbs
 // and adjectives live under a kana headword whose forms carry a `kanji` field.
 // kaikki rotates its dump files, so a pinned snapshot in the local asset cache
-// is used as a fallback (see DATA.md for the snapshot date and license).
+// is used as a fallback (see DATA.md for the snapshot date and license). The
+// .jsonl URL is served with `Content-Encoding: gzip` when we ask for it, so
+// curl stores gzip bytes without the 190 MB plain-text round-trip.
 const KOKUGO_URL =
-  "https://kaikki.org/jawiktionary/%E6%97%A5%E6%9C%AC%E8%9F%9E/kaikki.org-dictionary-%E6%97%A5%E6%9C%AC%E8%AA%9E.jsonl.gz"
+  "https://kaikki.org/jawiktionary/%E6%97%A5%E6%9C%AC%E8%AA%9E/kaikki.org-dictionary-%E6%97%A5%E6%9C%AC%E8%AA%9E.jsonl"
 const KOKUGO_CACHE =
   process.env.OC_DICT_KOKUGO ?? join(homedir(), ".local", "share", "opencode-dict-assets", "kaikki-ja-jawiktionary.jsonl.gz")
-function tryGet(src, dest) {
+function tryGet(src, dest, curlArgs = "") {
   if (existsSync(dest)) return true
   try {
-    execSync(`curl -sL --fail -o ${JSON.stringify(dest)} ${JSON.stringify(src)}`, { stdio: "pipe" })
+    execSync(`curl -sSL --fail ${curlArgs} -o ${JSON.stringify(dest)} ${JSON.stringify(src)}`, { stdio: "pipe" })
     return existsSync(dest)
-  } catch {
+  } catch (error) {
+    console.log(`fetch failed: ${src.split("/").pop()} (${String(error.stderr ?? error.status ?? error).split("\n")[0]})`)
     rmSync(dest, { force: true })
     return false
   }
 }
-if (!tryGet(KOKUGO_URL, `${TMP}/kaikki-ja.jsonl.gz`)) {
+if (!tryGet(KOKUGO_URL, `${TMP}/kaikki-ja.jsonl.gz`, `-H ${JSON.stringify("Accept-Encoding: gzip")}`)) {
   if (!existsSync(KOKUGO_CACHE)) {
     console.error(`kokugo: ${KOKUGO_URL} is unavailable and no cached snapshot at ${KOKUGO_CACHE}`)
     process.exit(1)
@@ -145,7 +148,8 @@ function addKokugo(surface, reading, pos, gloss) {
   kokugoKept++
 }
 {
-  const raw = gunzipSync(readFileSync(`${TMP}/kaikki-ja.jsonl.gz`)).toString("utf8")
+  const kokugoRaw = readFileSync(`${TMP}/kaikki-ja.jsonl.gz`)
+const raw = (kokugoRaw[0] === 0x1f && kokugoRaw[1] === 0x8b ? gunzipSync(kokugoRaw) : kokugoRaw).toString("utf8")
   for (const line of raw.split("\n")) {
     if (!line) continue
     let d
