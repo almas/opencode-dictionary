@@ -77,7 +77,28 @@ function jaVoice(): SpeechSynthesisVoice | undefined {
   return speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith("ja"))
 }
 
+/**
+ * Cross-plugin read-aloud bridge (protocol with the TTS plugin). The TTS
+ * plugin publishes its audio pipeline here; when present we speak through
+ * it (same voices and settings as the read-aloud button). Keep this block in
+ * sync with the same block in the tts plugin.
+ */
+interface TtsBridge {
+  /** Queues `text` for reading with the current voice. */
+  speak: (text: string) => void
+  /** Stops the current reading. */
+  stop: () => void
+}
+const TTS_BRIDGE_KEY = "__opencodeTtsBridge"
+
+/** Read a word aloud; returns false when no engine is available at all. */
 function speakJa(text: string): boolean {
+  const bridge = (globalThis as unknown as Record<string, TtsBridge | undefined>)[TTS_BRIDGE_KEY]
+  if (bridge) {
+    bridge.speak(text)
+    return true
+  }
+  // Without the TTS plugin fall back to the browser's own synthesis.
   if (typeof speechSynthesis === "undefined") return false
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.lang = "ja-JP"
@@ -140,13 +161,12 @@ export default Plugin.define({
       "dictionary.section.jmdict": "JMdict (Japanese ↔ English)",
       "dictionary.section.kokugo": "Kokugo (Japanese-Japanese)",
       "dictionary.context.lookup": "Look up in dictionary",
-      "dictionary.action.read": "Read aloud",
+      "dictionary.action.read": "Play audio",
       "dictionary.action.replay": "Replay stroke order",
       "dictionary.label.on": "On",
       "dictionary.label.kun": "Kun",
       "dictionary.label.grade": "Grade",
       "dictionary.label.strokes": "Strokes",
-      "dictionary.note.noVoice": "No Japanese system voice is installed, so read-aloud is unavailable.",
     },
     ja: {
       "dictionary.name": "辞書",
@@ -164,7 +184,6 @@ export default Plugin.define({
       "dictionary.label.kun": "訓読み",
       "dictionary.label.grade": "学年",
       "dictionary.label.strokes": "画数",
-      "dictionary.note.noVoice": "日本語のシステム音声がないため、読み上げは使えません。",
     },
   },
   setup(ctx) {
