@@ -88,6 +88,46 @@ function speakJa(text: string): boolean {
   return true
 }
 
+/**
+ * Shared right-click menu (protocol with the TTS plugin).
+ *
+ * Several plugins want items in the floating menu shown on messages and
+ * the review panel. Replacing that menu wholesale would hide the other
+ * plugin's items, so each plugin registers a provider in a small registry
+ * on `globalThis`; the first plugin whose listener runs builds one menu
+ * from every provider's items. Keep this block in sync with the same
+ * block in the tts plugin.
+ */
+interface ContextMenuItem {
+  id: string
+  owner: string
+  label: string
+  onSelect: () => void
+}
+interface ContextMenuContext {
+  /** Selected text at right-click time, trimmed. */
+  text: string
+  inMessage: boolean
+  panel: boolean
+  inEditor: boolean
+}
+type ContextMenuProvider = (context: ContextMenuContext) => ContextMenuItem[]
+interface ContextMenuEntry {
+  /** Lower number sorts earlier in the combined menu. */
+  order: number
+  provide: ContextMenuProvider
+}
+interface ContextMenuStore {
+  providers: Map<string, ContextMenuEntry>
+  /** Marks the event whose combined menu some plugin already rendered. */
+  rendered: WeakSet<MouseEvent>
+}
+const CONTEXT_MENU_KEY = "__opencodeContextMenuBar"
+function contextMenuStore(): ContextMenuStore {
+  const holder = globalThis as unknown as Record<string, ContextMenuStore | undefined>
+  return (holder[CONTEXT_MENU_KEY] ??= { providers: new Map(), rendered: new WeakSet<MouseEvent>() })
+}
+
 export default Plugin.define({
   i18n: {
     en: {
@@ -228,45 +268,7 @@ export default Plugin.define({
 
     // ---------- selection right-click ----------
 
-    /**
-     * Shared right-click menu (protocol with the TTS plugin).
-     *
-     * Several plugins want items in the floating menu shown on messages and
-     * the review panel. Replacing that menu wholesale would hide the other
-     * plugin's items, so each plugin registers a provider in a small registry
-     * on `globalThis`; the first plugin whose listener runs builds one menu
-     * from every provider's items. Keep this block in sync with the same
-     * block in the tts plugin.
-     */
-    interface ContextMenuItem {
-      id: string
-      owner: string
-      label: string
-      onSelect: () => void
-    }
-    interface ContextMenuContext {
-      /** Selected text at right-click time, trimmed. */
-      text: string
-      inMessage: boolean
-      panel: boolean
-      inEditor: boolean
-    }
-    type ContextMenuProvider = (context: ContextMenuContext) => ContextMenuItem[]
-    interface ContextMenuEntry {
-      /** Lower number sorts earlier in the combined menu. */
-      order: number
-      provide: ContextMenuProvider
-    }
-    interface ContextMenuStore {
-      providers: Map<string, ContextMenuEntry>
-      /** Marks the event whose combined menu some plugin already rendered. */
-      rendered: WeakSet<MouseEvent>
-    }
-    const CONTEXT_MENU_KEY = "__opencodeContextMenuBar"
-    function contextMenuStore(): ContextMenuStore {
-      const holder = globalThis as unknown as Record<string, ContextMenuStore | undefined>
-      return (holder[CONTEXT_MENU_KEY] ??= { providers: new Map(), rendered: new WeakSet<MouseEvent>() })
-    }
+
 
     /**
      * Floating right-click menu for the message list and the review panel.
