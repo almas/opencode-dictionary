@@ -227,35 +227,111 @@ export default Plugin.define({
     })
 
     // ---------- selection right-click ----------
+
+    /**
+     * Shared right-click menu (protocol with the TTS plugin).
+     *
+     * Several plugins want items in the floating menu shown on messages and
+     * the review panel. Replacing that menu wholesale would hide the other
+     * plugin's items, so each plugin registers a provider in a small registry
+     * on `globalThis`; the first plugin whose listener runs builds one menu
+     * from every provider's items. Keep this block in sync with the same
+     * block in the tts plugin.
+     */
+    interface ContextMenuItem {
+      id: string
+      owner: string
+      label: string
+      onSelect: () => void
+    }
+    interface ContextMenuContext {
+      /** Selected text at right-click time, trimmed. */
+      text: string
+      inMessage: boolean
+      panel: boolean
+      inEditor: boolean
+    }
+    type ContextMenuProvider = (context: ContextMenuContext) => ContextMenuItem[]
+    interface ContextMenuEntry {
+      /** Lower number sorts earlier in the combined menu. */
+      order: number
+      provide: ContextMenuProvider
+    }
+    interface ContextMenuStore {
+      providers: Map<string, ContextMenuEntry>
+      /** Marks the event whose combined menu some plugin already rendered. */
+      rendered: WeakSet<MouseEvent>
+    }
+    const CONTEXT_MENU_KEY = "__opencodeContextMenuBar"
+    function contextMenuStore(): ContextMenuStore {
+      const holder = globalThis as unknown as Record<string, ContextMenuStore | undefined>
+      return (holder[CONTEXT_MENU_KEY] ??= { providers: new Map(), rendered: new WeakSet<MouseEvent>() })
+    }
+
+    /**
+     * Floating right-click menu for the message list and the review panel.
+     * The dictionary contributes one lookup row when text is selected; the
+     * TTS plugin's provider contributes its read-aloud rows to the same menu.
+     */
     function SelectionMenu(props: { onLookup: (text: string) => void }): JSX.Element {
-      const [menu, setMenu] = createSignal<{ x: number; y: number; text: string } | null>(null)
+      const [menu, setMenu] = createSignal<{ x: number; y: number; text: string; items: ContextMenuItem[] } | null>(null)
+      const store = contextMenuStore()
       let el: HTMLDivElement | undefined
       const close = () => setMenu(null)
+
+      const provide: ContextMenuProvider = (context) => {
+        if ((!context.inMessage && !context.panel) || context.inEditor) return []
+        // Only single words look up well; trim long selections to one token.
+        const raw = context.text.replace(/\s+/g, "")
+        if (!raw) return []
+        const word = raw.length > 24 ? raw.slice(0, 24) : raw
+        return [
+          {
+            id: "dictionary.lookup",
+            owner: "dictionary",
+            label: `${ctx.t("dictionary.context.lookup")}「${word}」`,
+            onSelect: () => props.onLookup(word),
+          },
+        ]
+      }
+      store.providers.set("dictionary", { order: 20, provide })
+      onCleanup(() => store.providers.delete("dictionary"))
 
       const onContextMenu = (event: MouseEvent) => {
         if (event.defaultPrevented) return
         if (el && event.target instanceof Node && el.contains(event.target)) return
         // Message bodies and the read-only preview editor count; the composer
         // (which has its own menu from the spellcheck plugin) is skipped here.
-        const fromPanel = event.target instanceof Element && event.target.closest("#review-panel") != null
+        const panel = event.target instanceof Element && event.target.closest("#review-panel") != null
+        const codeView = event.target instanceof Element && event.target.closest(".cm-content") != null
         let inMessage = false
         let inEditor = false
         for (const node of event.composedPath()) {
           if (!(node instanceof Element)) continue
           if (!inMessage && node.hasAttribute("data-message-id")) inMessage = true
           if (!inEditor && (node.tagName === "TEXTAREA" || node.tagName === "INPUT")) inEditor = true
-          if (!inEditor && !fromPanel && node instanceof HTMLElement && node.isContentEditable) inEditor = true
+          if (!inEditor && !panel && !codeView && node instanceof HTMLElement && node.isContentEditable) inEditor = true
           if (inMessage && inEditor) break
         }
-        if ((!inMessage && !fromPanel) || inEditor) return
-        const text = window.getSelection()?.toString().trim() ?? ""
-        if (!text) return
+        const context: ContextMenuContext = { text: window.getSelection()?.toString().trim() ?? "", inMessage, panel, inEditor }
+        const items: ContextMenuItem[] = []
+        for (const entry of [...store.providers.values()].sort((a, b) => a.order - b.order)) {
+          try {
+            items.push(...entry.provide(context))
+          } catch {
+            // One plugin's provider must never break the shared menu.
+          }
+        }
+        if (items.length === 0) return
         event.preventDefault()
         event.stopPropagation()
+        if (store.rendered.has(event)) return
+        store.rendered.add(event)
         setMenu({
           x: Math.max(4, Math.min(event.clientX, window.innerWidth - 280)),
-          y: Math.max(4, Math.min(event.clientY, window.innerHeight - 100)),
-          text,
+          y: Math.max(4, Math.min(event.clientY, window.innerHeight - 120)),
+          text: context.text,
+          items,
         })
       }
 
@@ -282,22 +358,20 @@ export default Plugin.define({
         <Show when={menu()}>
           {(entry) => {
             const p = palette()
-            // Only single words look up well; trim long selections to the first token.
-            const word = () => {
-              const raw = entry().text.replace(/\s+/g, "")
-              return raw.length > 24 ? raw.slice(0, 24) : raw
-            }
+            const preview = entry().text.replace(/\s+/g, " ")
             return (
               <Portal mount={document.body}>
                 <div
                   ref={el}
+                  data-oc-ctx-menu=""
                   role="menu"
                   style={{
                     position: "fixed",
                     left: `${entry().x}px`,
                     top: `${entry().y}px`,
                     "z-index": "2147483647",
-                    "min-width": "180px",
+                    "min-width": "200px",
+                    "max-width": "300px",
                     background: p.background,
                     color: p.color,
                     border: p.border,
@@ -310,19 +384,27 @@ export default Plugin.define({
                   }}
                   onContextMenu={(event) => event.preventDefault()}
                 >
-                  <div
-                    role="menuitem"
-                    style={{ padding: "6px 10px", "border-radius": "6px", cursor: "pointer" }}
-                    onMouseEnter={(event) => (event.currentTarget.style.background = p.hover)}
-                    onMouseLeave={(event) => (event.currentTarget.style.background = "transparent")}
-                    onClick={() => {
-                      const text = word()
-                      close()
-                      props.onLookup(text)
-                    }}
-                  >
-                    {ctx.t("dictionary.context.lookup")}「{word()}」
-                  </div>
+                  <Show when={entry().text}>
+                    <div style={{ padding: "4px 8px 6px", opacity: "0.55", "white-space": "nowrap", "text-overflow": "ellipsis", overflow: "hidden" }}>
+                      {preview.length > 40 ? `${preview.slice(0, 40)}…` : preview}
+                    </div>
+                  </Show>
+                  <For each={entry().items}>
+                    {(item) => (
+                      <div
+                        role="menuitem"
+                        style={{ padding: "6px 10px", "border-radius": "6px", cursor: "pointer" }}
+                        onMouseEnter={(event) => (event.currentTarget.style.background = p.hover)}
+                        onMouseLeave={(event) => (event.currentTarget.style.background = "transparent")}
+                        onClick={() => {
+                          close()
+                          item.onSelect()
+                        }}
+                      >
+                        {item.label}
+                      </div>
+                    )}
+                  </For>
                 </div>
               </Portal>
             )
