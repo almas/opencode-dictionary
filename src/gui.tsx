@@ -30,6 +30,13 @@ const BOOK_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" s
 
 const DIALOG_STYLE_ID = "oc-dict-style"
 
+/**
+ * One injected stylesheet for the dialog and the stroke animation. Must be
+ * called from the GUI components themselves (it is idempotent), never at
+ * module top level: the settings page evaluates this bundle in a context
+ * without `document`, where a bare top-level call fails the plugin there
+ * ("document is not defined").
+ */
 function injectStyles() {
   if (document.getElementById(DIALOG_STYLE_ID)) return
   const style = document.createElement("style")
@@ -42,7 +49,6 @@ function injectStyles() {
 `
   document.head.appendChild(style)
 }
-injectStyles()
 
 /** Coarse dark/light detection so the dialog follows the host theme. */
 function palette() {
@@ -295,6 +301,7 @@ export default Plugin.define({
      * TTS plugin's provider contributes its read-aloud rows to the same menu.
      */
     function SelectionMenu(props: { onLookup: (text: string) => void }): JSX.Element {
+      injectStyles()
       const [menu, setMenu] = createSignal<{ x: number; y: number; text: string; items: ContextMenuItem[] } | null>(null)
       const store = contextMenuStore()
       let el: HTMLDivElement | undefined
@@ -442,6 +449,7 @@ export default Plugin.define({
       onQuery: (value: string) => void
       onClose: () => void
     }): JSX.Element {
+      injectStyles()
       const p = palette()
       let input: HTMLInputElement | undefined
       const onKeyDown = (event: KeyboardEvent) => {
